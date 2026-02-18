@@ -49,7 +49,8 @@ if [ -d "$WEB_DIR" ]; then
     git -C "$WEB_DIR" pull
 else
     echo "    Cloning ka9q-web..."
-    git clone https://github.com/scottnewell/ka9q-web.git "$WEB_DIR"
+    # Using wa2n-code fork which is compatible with latest ka9q-radio
+    git clone https://github.com/wa2n-code/ka9q-web.git "$WEB_DIR"
 fi
 
 # onion
