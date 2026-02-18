@@ -63,3 +63,25 @@ Run the script from the command line, optionally specifying a target directory w
 
 * The script requires `sudo` privileges to install packages and services. You may be prompted for your password.
 * An active internet connection is required to fetch packages and clone repositories.
+
+## Configuration Template
+
+A template configuration file, `radiod@template.conf`, is included in this repository.
+
+### Usage
+
+1. Copy the template to the radio configuration directory:
+
+    ```bash
+    sudo cp radiod@template.conf /etc/radio/radiod@my-instance-name.conf
+    ```
+
+    *Replace `my-instance-name` with your desired instance identifier (e.g., `hf`, `vhf`).*
+
+2. Edit the file and replace the placeholders with your specific configuration:
+    * `YOUR_STATUS_HOST.local`: The multicast DNS name for status updates.
+    * `YOUR_INTERFACE_NAME`: The network interface to use (e.g., `eth0`).
+    * `YOUR_CALLSIGN`: Your amateur radio callsign.
+    * `YOUR_GRID`: Your Maidenhead grid locator.
+    * `YOUR_ANTENNA`: A description of your antenna.
+    * `YOUR_DATA_HOST.local`, `YOUR_FT8_PCM_HOST.local`, etc.: Multicast DNS names for data streams.
