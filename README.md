@@ -68,7 +68,7 @@ Run the script from the command line, optionally specifying a target directory w
 
 A template configuration file, `radiod@template.conf`, is included in this repository.
 
-### Usage
+### Template Usage
 
 1. Copy the template to the radio configuration directory:
 

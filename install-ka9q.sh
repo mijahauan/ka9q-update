@@ -120,7 +120,8 @@ fi
 
 if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
     # Extract status address (handles 'status = value # comment')
-    STATUS_ADDR=$(awk -F'=' '/^\s*status\s*=/ {print $2}' "$CONFIG_FILE" | awk '{print $1}')
+    # Using grep and sed for better portability than awk with \s
+    STATUS_ADDR=$(grep -E "^[[:space:]]*status[[:space:]]*=" "$CONFIG_FILE" | head -n1 | sed -E 's/^[[:space:]]*status[[:space:]]*=[[:space:]]*([^ #]*).*/\1/')
 
     if [ -z "$STATUS_ADDR" ]; then
         echo "Error: Could not find 'status =' definition in $CONFIG_FILE"
