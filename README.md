@@ -84,4 +84,3 @@ A template configuration file, `radiod@template.conf`, is included in this repos
     * `YOUR_CALLSIGN`: Your amateur radio callsign.
     * `YOUR_GRID`: Your Maidenhead grid locator.
     * `YOUR_ANTENNA`: A description of your antenna.
-    * `YOUR_DATA_HOST.local`, `YOUR_FT8_PCM_HOST.local`, etc.: Multicast DNS names for data streams.
