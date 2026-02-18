@@ -162,7 +162,8 @@ fi
 echo "[+] Restarting Services..."
 
 if [ -n "$INSTANCE_NAME" ]; then
-    echo "    Restarting radiod@$INSTANCE_NAME..."
+    echo "    Enabling and restarting radiod@$INSTANCE_NAME..."
+    sudo systemctl enable "radiod@$INSTANCE_NAME"
     sudo systemctl restart "radiod@$INSTANCE_NAME"
 else
     echo "    Skipping radiod start (no instance found)."
