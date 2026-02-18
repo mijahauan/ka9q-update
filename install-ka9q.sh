@@ -135,7 +135,8 @@ fi
 # 5. Build and Install ka9q-web
 echo "[+] Building and Installing ka9q-web..."
 cd "$WEB_DIR"
-make -j$(nproc)
+# Explicitly pass KA9Q_RADIO_DIR to ensure it finds the source/objects correctly
+make -j$(nproc) KA9Q_RADIO_DIR="$RADIO_DIR/src"
 sudo make install
 
 # 6. Configure service for ka9q-web
