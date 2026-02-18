@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Default to current directory if not provided, or a sensible default if called from elsewhere
+# Default to current directory if not provided
 TARGET_DIR="${1:-$PWD}"
 
 echo "=== ka9q-radio & ka9q-web Installer ==="
@@ -18,7 +18,6 @@ ONION_DIR="$TARGET_DIR/onion"
 
 # 0. Install Dependencies
 echo "[+] Installing Dependencies..."
-# List from INSTALL.md + extras requested + Onion dependencies
 DEPENDENCIES="git avahi-utils build-essential make gcc libairspy-dev libairspyhf-dev \
 libavahi-client-dev libbsd-dev libfftw3-dev libhackrf-dev libiniparser-dev \
 libncurses5-dev libopus-dev librtlsdr-dev libusb-1.0-0-dev libusb-dev \
@@ -27,7 +26,7 @@ libliquid-dev libncursesw5-dev libhackrf-dev libbladerf-dev libliquid-dev \
 sox libsox-fmt-all opus-tools flac tcpdump wireshark \
 libgnutls28-dev libgcrypt-dev cmake"
 
-echo "    Updates apt cache..."
+echo "    Updating apt cache..."
 sudo apt update
 echo "    Installing packages..."
 sudo apt install -y $DEPENDENCIES
@@ -88,7 +87,14 @@ echo "    Installing Onion..."
 sudo make install
 sudo ldconfig
 
-# 3. Detect Configuration
+# 3. Build and Install ka9q-radio
+# MOVED UP: Must be installed before we can check /etc/radio config
+echo "[+] Building and Installing ka9q-radio..."
+cd "$RADIO_DIR"
+make -j$(nproc)
+sudo make install
+
+# 4. Detect Configuration
 echo "[+] Detecting Configuration..."
 # Try to find running radiod instance first
 RUNNING_INSTANCE=$(systemctl list-units --type=service --state=running --no-legend "radiod@*" | cut -d' ' -f1 | head -n1)
@@ -100,33 +106,30 @@ if [ -n "$RUNNING_INSTANCE" ]; then
 else
     # Find first conf file in /etc/radio
     CONFIG_FILE=$(ls /etc/radio/radiod@*.conf 2>/dev/null | head -n1)
+    
     if [ -z "$CONFIG_FILE" ]; then
-        echo "Error: No configuration found in /etc/radio."
+        echo "Warning: No configuration found in /etc/radio."
+        echo "         You need to create a configuration file before starting the service."
+        echo "         A template is available in the repository: radiod@template.conf"
+        read -p "Press Enter to continue installation (service start will fail) or Ctrl+C to abort..."
+    else
+        INSTANCE_NAME=$(basename "$CONFIG_FILE" | sed -E 's/radiod@(.*)\.conf/\1/')
+        echo "    Found configuration file for instance: $INSTANCE_NAME"
+    fi
+fi
+
+if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+    # Extract status address (handles 'status = value # comment')
+    STATUS_ADDR=$(awk -F'=' '/^\s*status\s*=/ {print $2}' "$CONFIG_FILE" | awk '{print $1}')
+
+    if [ -z "$STATUS_ADDR" ]; then
+        echo "Error: Could not find 'status =' definition in $CONFIG_FILE"
         exit 1
     fi
-    INSTANCE_NAME=$(basename "$CONFIG_FILE" | sed -E 's/radiod@(.*)\.conf/\1/')
-    echo "    Found configuration file for instance: $INSTANCE_NAME"
+    echo "    Using status address: $STATUS_ADDR"
+else
+    echo "    No valid config found. Skipping status address detection."
 fi
-
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Error: Configuration file $CONFIG_FILE does not exist."
-    exit 1
-fi
-
-# Extract status address (handles 'status = value # comment')
-STATUS_ADDR=$(awk -F'=' '/^\s*status\s*=/ {print $2}' "$CONFIG_FILE" | awk '{print $1}')
-
-if [ -z "$STATUS_ADDR" ]; then
-    echo "Error: Could not find 'status =' definition in $CONFIG_FILE"
-    exit 1
-fi
-echo "    Using status address: $STATUS_ADDR"
-
-# 4. Build and Install ka9q-radio
-echo "[+] Building and Installing ka9q-radio..."
-cd "$RADIO_DIR"
-make -j$(nproc)
-sudo make install
 
 # 5. Build and Install ka9q-web
 echo "[+] Building and Installing ka9q-web..."
@@ -137,28 +140,41 @@ sudo make install
 # 6. Configure service for ka9q-web
 echo "[+] Configuring ka9q-web service..."
 
-TEMP_SERVICE_FILE="/tmp/ka9q-web.service"
-KA9Q_WEB_SERVICE_SRC="$WEB_DIR/ka9q-web.service"
+if [ -n "$STATUS_ADDR" ]; then
+    TEMP_SERVICE_FILE="/tmp/ka9q-web.service"
+    KA9Q_WEB_SERVICE_SRC="$WEB_DIR/ka9q-web.service"
 
-# Copy service file to temp to modify
-cp "$KA9Q_WEB_SERVICE_SRC" "$TEMP_SERVICE_FILE"
+    # Copy service file to temp to modify
+    cp "$KA9Q_WEB_SERVICE_SRC" "$TEMP_SERVICE_FILE"
 
-# Update ExecStart with discovered status address
-# Use | as delimiter to avoid issues with standard slashes in paths
-sed -i "s|ExecStart=.*|ExecStart=/usr/local/sbin/ka9q-web -m $STATUS_ADDR -p 8081|" "$TEMP_SERVICE_FILE"
+    # Update ExecStart with discovered status address
+    sed -i "s|ExecStart=.*|ExecStart=/usr/local/sbin/ka9q-web -m $STATUS_ADDR -p 8081|" "$TEMP_SERVICE_FILE"
 
-echo "    Installing service file to /etc/systemd/system/ka9q-web.service..."
-sudo cp "$TEMP_SERVICE_FILE" /etc/systemd/system/ka9q-web.service
-sudo systemctl daemon-reload
+    echo "    Installing service file to /etc/systemd/system/ka9q-web.service..."
+    sudo cp "$TEMP_SERVICE_FILE" /etc/systemd/system/ka9q-web.service
+    sudo systemctl daemon-reload
+else
+    echo "    Skipping ka9q-web service configuration (no status address)."
+fi
 
 # 7. Restart Services
 echo "[+] Restarting Services..."
-echo "    Restarting radiod@$INSTANCE_NAME..."
-sudo systemctl restart "radiod@$INSTANCE_NAME"
 
-echo "    Enabling and starting ka9q-web..."
-sudo systemctl enable ka9q-web
-sudo systemctl restart ka9q-web
+if [ -n "$INSTANCE_NAME" ]; then
+    echo "    Restarting radiod@$INSTANCE_NAME..."
+    sudo systemctl restart "radiod@$INSTANCE_NAME"
+else
+    echo "    Skipping radiod start (no instance found)."
+fi
 
-echo "=== Installation Complete ==="
-echo "ka9q-web service is active."
+if [ -n "$STATUS_ADDR" ]; then
+    echo "    Enabling and starting ka9q-web..."
+    sudo systemctl enable ka9q-web
+    sudo systemctl restart ka9q-web
+    echo "=== Installation Complete ==="
+    echo "ka9q-web service is active."
+else
+    echo "=== Installation Partial ==="
+    echo "ka9q-web installed but NOT started."
+    echo "Please configure radiod, then restart the services."
+fi
