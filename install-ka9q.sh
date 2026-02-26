@@ -7,6 +7,15 @@ TARGET_DIR="${1:-$PWD}"
 echo "=== ka9q-radio & ka9q-web Installer ==="
 echo "Target Directory: $TARGET_DIR"
 
+# Verify sudo access upfront
+echo "This installer requires administrative privileges."
+if ! sudo -v; then
+    echo "Error: Need sudo privileges to run this installer."
+    exit 1
+fi
+# Keep-alive: update existing sudo time stamp until the script has finished
+while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
+
 if [ ! -d "$TARGET_DIR" ]; then
     echo "Creating target directory: $TARGET_DIR"
     mkdir -p "$TARGET_DIR"
@@ -160,7 +169,58 @@ else
     echo "    Skipping ka9q-web service configuration (no status address)."
 fi
 
-# 7. Restart Services
+# 7. Generate FFTW Wisdom
+echo "[+] Generating FFTW Wisdom..."
+
+KA9Q_RADIO_WISDOM_FILE_PATH="/var/lib/ka9q-radio/wisdom"
+FFTW_SYSTEM_WISDOM_FILE_PATH="/etc/fftw/wisdomf"
+TMP_WISDOM_FILE_PATH="/tmp/wisdom"
+
+# The slow 129Msps plan is excluded by default
+FFT_RATES="rof1620000 cob162000 cob81000 cob40500 cob32400 cob16200 cob9600 cob8100 cob6930 cob4860 cob4800 cob3240 cob3200 cob1920 cob1620 cob1600 cob1200 cob960 cob810 cob800 cob600 cob480 cob405 cob400 cob320 cob300 cob205 cob200 cob160 cob85 cob45 cob15"
+
+# Provide existing wisdom to fftwf-wisdom to speed things up if it exists
+REF_WISDOM_ARG=""
+if [ -f "$KA9Q_RADIO_WISDOM_FILE_PATH" ]; then
+    REF_WISDOM_ARG="-w $KA9Q_RADIO_WISDOM_FILE_PATH"
+fi
+
+echo "    Running fftwf-wisdom to optimize FFTs (this may take a few moments)..."
+fftwf-wisdom -v -T 1 $REF_WISDOM_ARG -o "$TMP_WISDOM_FILE_PATH" $FFT_RATES > /dev/null 2>&1
+
+echo "    Installing new wisdom files..."
+for WISDOM_FILE in "$KA9Q_RADIO_WISDOM_FILE_PATH" "$FFTW_SYSTEM_WISDOM_FILE_PATH"; do
+    # Create directory if needed
+    sudo mkdir -p "$(dirname "$WISDOM_FILE")"
+    
+    CURRENT_SIZE=0
+    if [ -f "$WISDOM_FILE" ]; then
+        CURRENT_SIZE=$(stat -c %s "$WISDOM_FILE" 2>/dev/null || echo 0)
+    fi
+    
+    NEW_SIZE=0
+    if [ -f "$TMP_WISDOM_FILE_PATH" ]; then
+        NEW_SIZE=$(stat -c %s "$TMP_WISDOM_FILE_PATH" 2>/dev/null || echo 0)
+    fi
+    
+    if [ "$NEW_SIZE" -gt 0 ]; then
+        if [ "$NEW_SIZE" -gt "$CURRENT_SIZE" ] || [ ! -f "$WISDOM_FILE" ]; then
+            echo "    Installing updated wisdom in $WISDOM_FILE"
+            sudo cp -p "$TMP_WISDOM_FILE_PATH" "$WISDOM_FILE"
+            sudo chmod 664 "$WISDOM_FILE"
+            # Attempt to set ownership to match directory if it exists
+            DIR_OWNER=$(stat -c %U:%G "$(dirname "$WISDOM_FILE")" 2>/dev/null || echo "root:root")
+            sudo chown "$DIR_OWNER" "$WISDOM_FILE"
+        else
+            echo "    Skipping update for $WISDOM_FILE (existing is larger or equal)"
+        fi
+    fi
+done
+
+# Cleanup
+rm -f "$TMP_WISDOM_FILE_PATH"
+
+# 8. Restart Services
 echo "[+] Restarting Services..."
 
 if [ -n "$INSTANCE_NAME" ]; then
