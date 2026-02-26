@@ -106,10 +106,12 @@ sudo make install
 
 # 4. Detect Configuration
 echo "[+] Detecting Configuration..."
+RADIOD_WAS_RUNNING=0
 # Try to find running radiod instance first
 RUNNING_INSTANCE=$(systemctl list-units --type=service --state=running --no-legend "radiod@*" | cut -d' ' -f1 | head -n1)
 
 if [ -n "$RUNNING_INSTANCE" ]; then
+    RADIOD_WAS_RUNNING=1
     INSTANCE_NAME=$(echo "$RUNNING_INSTANCE" | sed -E 's/radiod@(.*)\.service/\1/')
     echo "    Found running service: $INSTANCE_NAME"
     CONFIG_FILE="/etc/radio/radiod@${INSTANCE_NAME}.conf"
@@ -124,7 +126,7 @@ else
         read -p "Press Enter to continue installation (service start will fail) or Ctrl+C to abort..."
     else
         INSTANCE_NAME=$(basename "$CONFIG_FILE" | sed -E 's/radiod@(.*)\.conf/\1/')
-        echo "    Found configuration file for instance: $INSTANCE_NAME"
+        echo "    Found configuration file for instance: $INSTANCE_NAME (currently stopped)"
     fi
 fi
 
@@ -140,6 +142,15 @@ if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
     echo "    Using status address: $STATUS_ADDR"
 else
     echo "    No valid config found. Skipping status address detection."
+fi
+
+# Check if ka9q-web was running
+WEB_WAS_RUNNING=0
+if systemctl is-active --quiet ka9q-web 2>/dev/null; then
+    WEB_WAS_RUNNING=1
+    echo "    ka9q-web service is currently running."
+else
+    echo "    ka9q-web service is currently stopped (or not installed)."
 fi
 
 # 5. Build and Install ka9q-web
@@ -223,20 +234,42 @@ rm -f "$TMP_WISDOM_FILE_PATH"
 # 8. Restart Services
 echo "[+] Restarting Services..."
 
+# Helper function to conditional start services
+prompt_start_service() {
+    local SERVICE_NAME="$1"
+    local WAS_RUNNING="$2"
+    
+    sudo systemctl enable "$SERVICE_NAME" >/dev/null 2>&1
+    
+    if [ "$WAS_RUNNING" -eq 1 ]; then
+        echo "    Restarting previously running service: $SERVICE_NAME..."
+        sudo systemctl restart "$SERVICE_NAME"
+    else
+        echo "    Service $SERVICE_NAME was not running before the update."
+        read -p "    Do you want to start $SERVICE_NAME now? [y/N]: " START_RESPONSE
+        if [[ "$START_RESPONSE" =~ ^[Yy]$ ]]; then
+            echo "    Starting $SERVICE_NAME..."
+            sudo systemctl start "$SERVICE_NAME"
+        else
+            echo "    Leaving $SERVICE_NAME stopped."
+        fi
+    fi
+}
+
 if [ -n "$INSTANCE_NAME" ]; then
-    echo "    Enabling and restarting radiod@$INSTANCE_NAME..."
-    sudo systemctl enable "radiod@$INSTANCE_NAME"
-    sudo systemctl restart "radiod@$INSTANCE_NAME"
+    prompt_start_service "radiod@$INSTANCE_NAME" "$RADIOD_WAS_RUNNING"
 else
     echo "    Skipping radiod start (no instance found)."
 fi
 
 if [ -n "$STATUS_ADDR" ]; then
-    echo "    Enabling and starting ka9q-web..."
-    sudo systemctl enable ka9q-web
-    sudo systemctl restart ka9q-web
+    prompt_start_service "ka9q-web" "$WEB_WAS_RUNNING"
     echo "=== Installation Complete ==="
-    echo "ka9q-web service is active."
+    if systemctl is-active --quiet ka9q-web 2>/dev/null; then
+        echo "ka9q-web service is active."
+    else
+        echo "ka9q-web service is installed but currently stopped."
+    fi
 else
     echo "=== Installation Partial ==="
     echo "ka9q-web installed but NOT started."
