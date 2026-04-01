@@ -64,6 +64,32 @@ Run the script from the command line, optionally specifying a target directory w
 * The script requires `sudo` privileges to install packages and services. You may be prompted for your password.
 * An active internet connection is required to fetch packages and clone repositories.
 
+### ka9q-python Compatibility Pin
+
+The installer can build ka9q-radio at a **specific commit** validated by `ka9q-python`, ensuring protocol compatibility between `radiod` and Python clients.
+
+**How it works:** When run without `--no-pin`, the script automatically resolves the pinned commit:
+
+1. **`--pin-commit HASH`** — Explicit override (highest priority)
+2. **Installed `ka9q-python`** — Reads `ka9q.compat.KA9Q_RADIO_COMMIT` via Python
+3. **Sibling checkout** — Reads `TARGET_DIR/ka9q-python/ka9q_radio_compat`
+4. **Falls back to HEAD** — If no pin is found
+
+**Examples:**
+
+```bash
+# Auto-detect pin from installed ka9q-python or sibling checkout
+./install-ka9q.sh ~/git
+
+# Explicit pin
+./install-ka9q.sh --pin-commit 6b0fec7dae82bf5f4d80cad88ec343453d6e6950 ~/git
+
+# Ignore pin, build from latest HEAD
+./install-ka9q.sh --no-pin ~/git
+```
+
+**Updating the pin:** When `ka9q-python` is updated (via `pip install --upgrade ka9q-python` or a new checkout), the pin automatically reflects the new validated commit. Simply re-run the installer to rebuild `radiod` at the matching version.
+
 ## Configuration Template
 
 A template configuration file, `radiod@template.conf`, is included in this repository.

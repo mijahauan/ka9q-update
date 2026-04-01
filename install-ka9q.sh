@@ -1,8 +1,47 @@
 #!/bin/bash
 set -e
 
-# Default to current directory if not provided
-TARGET_DIR="${1:-$PWD}"
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+PIN_COMMIT=""
+TARGET_DIR=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --pin-commit)
+            PIN_COMMIT="$2"
+            shift 2
+            ;;
+        --pin-commit=*)
+            PIN_COMMIT="${1#*=}"
+            shift
+            ;;
+        --no-pin)
+            PIN_COMMIT="HEAD"
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [--pin-commit HASH | --no-pin] [TARGET_DIRECTORY]"
+            echo ""
+            echo "Options:"
+            echo "  --pin-commit HASH  Checkout ka9q-radio at a specific commit"
+            echo "  --no-pin           Build from ka9q-radio HEAD (skip pin detection)"
+            echo ""
+            echo "If --pin-commit is not given, the script tries to read the pin from:"
+            echo "  1. Installed ka9q-python package (ka9q.compat.KA9Q_RADIO_COMMIT)"
+            echo "  2. Sibling ka9q-python/ka9q_radio_compat file"
+            echo "  3. Falls back to HEAD if neither is available"
+            exit 0
+            ;;
+        *)
+            TARGET_DIR="$1"
+            shift
+            ;;
+    esac
+done
+
+TARGET_DIR="${TARGET_DIR:-$PWD}"
 
 echo "=== ka9q-radio & ka9q-web Installer ==="
 echo "Target Directory: $TARGET_DIR"
@@ -46,10 +85,37 @@ echo "[+] Checking Repositories..."
 # ka9q-radio
 if [ -d "$RADIO_DIR" ]; then
     echo "    Updating ka9q-radio..."
+    git -C "$RADIO_DIR" fetch origin
     git -C "$RADIO_DIR" pull
 else
     echo "    Cloning ka9q-radio..."
     git clone https://github.com/ka9q/ka9q-radio.git "$RADIO_DIR"
+fi
+
+# --- Resolve ka9q-radio pin commit ---
+if [ -z "$PIN_COMMIT" ]; then
+    # Try 1: installed ka9q-python package
+    PIN_COMMIT=$(python3 -c "from ka9q.compat import KA9Q_RADIO_COMMIT; print(KA9Q_RADIO_COMMIT)" 2>/dev/null || true)
+
+    # Try 2: sibling ka9q-python checkout
+    if [ -z "$PIN_COMMIT" ] || [ "$PIN_COMMIT" = "unknown" ]; then
+        COMPAT_FILE="$TARGET_DIR/ka9q-python/ka9q_radio_compat"
+        if [ -f "$COMPAT_FILE" ]; then
+            PIN_COMMIT=$(grep -v '^#' "$COMPAT_FILE" | grep -v '^$' | head -n1)
+        fi
+    fi
+fi
+
+if [ -n "$PIN_COMMIT" ] && [ "$PIN_COMMIT" != "HEAD" ] && [ "$PIN_COMMIT" != "unknown" ]; then
+    echo "    Pinning ka9q-radio to commit: ${PIN_COMMIT:0:12}"
+    if git -C "$RADIO_DIR" cat-file -t "$PIN_COMMIT" >/dev/null 2>&1; then
+        git -C "$RADIO_DIR" checkout "$PIN_COMMIT"
+    else
+        echo "    WARNING: Pin commit $PIN_COMMIT not found in ka9q-radio repo."
+        echo "             Building from HEAD instead."
+    fi
+else
+    echo "    Building ka9q-radio from HEAD (no pin detected)."
 fi
 
 # ka9q-web
