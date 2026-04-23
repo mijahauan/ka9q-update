@@ -86,6 +86,8 @@ echo "[+] Checking Repositories..."
 if [ -d "$RADIO_DIR" ]; then
     echo "    Updating ka9q-radio..."
     git -C "$RADIO_DIR" fetch origin
+    # Ensure we're on a branch before pulling (re-runs leave detached HEAD after commit pin).
+    git -C "$RADIO_DIR" checkout main 2>/dev/null || git -C "$RADIO_DIR" checkout master 2>/dev/null || true
     git -C "$RADIO_DIR" pull
 else
     echo "    Cloning ka9q-radio..."
@@ -189,7 +191,7 @@ else
         echo "Warning: No configuration found in /etc/radio."
         echo "         You need to create a configuration file before starting the service."
         echo "         A template is available in the repository: radiod@template.conf"
-        read -p "Press Enter to continue installation (service start will fail) or Ctrl+C to abort..."
+        read -p "Press Enter to continue installation (service start will fail) or Ctrl+C to abort..." || true
     else
         INSTANCE_NAME=$(basename "$CONFIG_FILE" | sed -E 's/radiod@(.*)\.conf/\1/')
         echo "    Found configuration file for instance: $INSTANCE_NAME (currently stopped)"
@@ -312,7 +314,7 @@ prompt_start_service() {
         sudo systemctl restart "$SERVICE_NAME"
     else
         echo "    Service $SERVICE_NAME was not running before the update."
-        read -p "    Do you want to start $SERVICE_NAME now? [y/N]: " START_RESPONSE
+        read -p "    Do you want to start $SERVICE_NAME now? [y/N]: " START_RESPONSE || true
         if [[ "$START_RESPONSE" =~ ^[Yy]$ ]]; then
             echo "    Starting $SERVICE_NAME..."
             sudo systemctl start "$SERVICE_NAME"
