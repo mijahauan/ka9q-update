@@ -236,8 +236,15 @@ sudo make install
 echo "[+] Configuring ka9q-web service..."
 
 if [ -n "$STATUS_ADDR" ]; then
-    TEMP_SERVICE_FILE="/tmp/ka9q-web.service"
     KA9Q_WEB_SERVICE_SRC="$WEB_DIR/ka9q-web.service"
+    # Use mktemp so re-runs don't trip over a prior run's leftover at a
+    # fixed path — `cp` to /tmp/ka9q-web.service fails with "Permission
+    # denied" if a previous successful run left that file owned by root
+    # (because the sudo cp on the next line copied it to systemd as root)
+    # and the current run is unprivileged.  mktemp is unique-per-run and
+    # owned by the invoking user, so this cp always succeeds.
+    TEMP_SERVICE_FILE=$(mktemp -t ka9q-web.service.XXXXXX)
+    trap 'rm -f "$TEMP_SERVICE_FILE"' EXIT
 
     # Copy service file to temp to modify
     cp "$KA9Q_WEB_SERVICE_SRC" "$TEMP_SERVICE_FILE"
