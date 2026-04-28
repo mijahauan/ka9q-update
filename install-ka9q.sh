@@ -123,6 +123,10 @@ fi
 # ka9q-web
 if [ -d "$WEB_DIR" ]; then
     echo "    Updating ka9q-web..."
+    # Ensure we're on a branch before pulling — a previous run (or manual
+    # operator checkout) can leave the repo in detached HEAD, which makes
+    # `git pull` fail with "You are not currently on a branch" under set -e.
+    git -C "$WEB_DIR" checkout main 2>/dev/null || git -C "$WEB_DIR" checkout master 2>/dev/null || true
     git -C "$WEB_DIR" pull
 else
     echo "    Cloning ka9q-web..."
