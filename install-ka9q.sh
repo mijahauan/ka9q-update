@@ -172,9 +172,29 @@ sudo ldconfig
 # 3. Build and Install ka9q-radio
 # MOVED UP: Must be installed before we can check /etc/radio config
 echo "[+] Building and Installing ka9q-radio..."
+
+# Create the `radio` user/group that ka9q-radio's systemd units run as
+# and that its Makefile chowns paths to.  Upstream's aux/Makefile (line 81)
+# does `chown radio:radio` but never creates the user — that's handled
+# only by debian/preinst, which native (non-deb) installs never invoke.
+# Without this, radiod@*.service silently fails ExecStart user lookup.
+if ! getent passwd radio >/dev/null 2>&1; then
+    echo "    Creating system user/group: radio"
+    sudo useradd --system --user-group --no-create-home \
+                 --home-dir /var/lib/ka9q-radio \
+                 --shell /usr/sbin/nologin radio
+fi
+
 cd "$RADIO_DIR"
 make -j$(nproc)
 sudo make install
+
+# `make install` writes /usr/lib/tmpfiles.d/ka9q-radio-common.tmpfiles which
+# declares /etc/radio, /var/lib/ka9q-radio, /usr/share/ka9q-radio — but only
+# debian/postinst invokes systemd-tmpfiles --create.  Trigger it here so
+# native installs create those dirs too; without them, radiod has no config
+# to read and writes no state.
+sudo systemd-tmpfiles --create
 
 # 4. Detect Configuration
 echo "[+] Detecting Configuration..."
