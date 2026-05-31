@@ -18,11 +18,21 @@ The primary goals of this script are:
 
 ### Organization
 
-The script operates by managing three main components within a target directory:
+The script operates by managing these components within a target directory:
 
 * **`ka9q-radio`**: The core software defined radio daemon and utilities.
 * **`ka9q-web`**: The web interface for controlling and monitoring the radio.
 * **`onion`**: A C library for creating web servers, required by `ka9q-web`.
+* **`libfobos`**: RigExpert Fobos SDR host library. Required because
+  `ka9q-radio` builds the `fobos.so` device plugin by default
+  (`ENABLE_FOBOS=1`) and links it against `-lfobos`. No Debian package
+  exists, so the source is cloned and built from
+  `github.com/rigexpert/libfobos`.
+* **`hydrasdr-host`**: HydraSDR host software (provides `libhydrasdr`).
+  Required because `ka9q-radio` builds the `hydrasdr.so` device plugin
+  by default (`ENABLE_HYDRASDR=1`) and links it against `-lhydrasdr`.
+  No Debian package exists, so the source is cloned and built from
+  `github.com/hydrasdr/hydrasdr-host`.
 
 It attempts to be "smart" about existing installations:
 

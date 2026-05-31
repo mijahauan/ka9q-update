@@ -63,6 +63,8 @@ fi
 RADIO_DIR="$TARGET_DIR/ka9q-radio"
 WEB_DIR="$TARGET_DIR/ka9q-web"
 ONION_DIR="$TARGET_DIR/onion"
+LIBFOBOS_DIR="$TARGET_DIR/libfobos"
+HYDRASDR_DIR="$TARGET_DIR/hydrasdr-host"
 
 # 0. Install Dependencies
 echo "[+] Installing Dependencies..."
@@ -143,6 +145,26 @@ else
     git clone https://github.com/davidmoreno/onion.git "$ONION_DIR"
 fi
 
+# libfobos (RigExpert Fobos SDR API — ka9q-radio fobos.so plugin links -lfobos)
+if [ -d "$LIBFOBOS_DIR" ]; then
+    echo "    Updating libfobos..."
+    git -C "$LIBFOBOS_DIR" checkout master 2>/dev/null || git -C "$LIBFOBOS_DIR" checkout main 2>/dev/null || true
+    git -C "$LIBFOBOS_DIR" pull
+else
+    echo "    Cloning libfobos..."
+    git clone https://github.com/rigexpert/libfobos.git "$LIBFOBOS_DIR"
+fi
+
+# hydrasdr-host (HydraSDR host software — ka9q-radio hydrasdr.so plugin links -lhydrasdr)
+if [ -d "$HYDRASDR_DIR" ]; then
+    echo "    Updating hydrasdr-host..."
+    git -C "$HYDRASDR_DIR" checkout main 2>/dev/null || git -C "$HYDRASDR_DIR" checkout master 2>/dev/null || true
+    git -C "$HYDRASDR_DIR" pull
+else
+    echo "    Cloning hydrasdr-host..."
+    git clone https://github.com/hydrasdr/hydrasdr-host.git "$HYDRASDR_DIR"
+fi
+
 # 2. Build Onion Framework
 echo "[+] Building Onion Framework..."
 cd "$ONION_DIR"
@@ -167,6 +189,30 @@ echo "    Compiling Onion..."
 make -j$(nproc)
 echo "    Installing Onion..."
 sudo make install
+sudo ldconfig
+
+# 2a. Build and Install libfobos
+echo "[+] Building and Installing libfobos..."
+cd "$LIBFOBOS_DIR"
+mkdir -p build
+cd build
+cmake .. > cmake_output.txt 2>&1 || { echo "Error: libfobos cmake failed."; cat cmake_output.txt; exit 1; }
+make -j$(nproc)
+sudo make install
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+sudo ldconfig
+
+# 2b. Build and Install hydrasdr-host (libhydrasdr + tools)
+echo "[+] Building and Installing hydrasdr-host..."
+cd "$HYDRASDR_DIR"
+mkdir -p build
+cd build
+cmake -DINSTALL_UDEV_RULES=ON .. > cmake_output.txt 2>&1 || { echo "Error: hydrasdr-host cmake failed."; cat cmake_output.txt; exit 1; }
+make -j$(nproc)
+sudo make install
+sudo udevadm control --reload-rules
+sudo udevadm trigger
 sudo ldconfig
 
 # 3. Build and Install ka9q-radio
