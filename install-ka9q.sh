@@ -215,8 +215,70 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 sudo ldconfig
 
+# 2c. Detect Configuration & snapshot service state — MUST run before any
+# install step that touches systemd.  Earlier this block lived after the
+# ka9q-radio install, but ka9q-radio's `make install` runs `systemctl
+# daemon-reload`, which races `systemctl list-units --state=running` —
+# during the reload window the filter transiently excludes the running
+# unit, producing a false-negative "service was not running" reading and
+# making the end-of-script restart logic leave radiod stopped.
+# Capturing pre-install state sidesteps the race entirely and gives the
+# correct "restart what was running before we started" semantic.
+echo "[+] Detecting Configuration..."
+
+RADIOD_WAS_RUNNING=0
+INSTANCE_NAME=""
+CONFIG_FILE=""
+
+# Enumerate from /etc/radio/radiod@*.conf and ask is-active per instance.
+# is-active reads ActiveState (stable across daemon-reload), unlike the
+# list-units SubState=running filter that was racy.
+for conf in /etc/radio/radiod@*.conf; do
+    [ -f "$conf" ] || continue
+    candidate=$(basename "$conf" .conf | sed 's/^radiod@//')
+    if systemctl is-active --quiet "radiod@${candidate}.service" 2>/dev/null; then
+        INSTANCE_NAME="$candidate"
+        CONFIG_FILE="$conf"
+        RADIOD_WAS_RUNNING=1
+        echo "    Found running service: radiod@${INSTANCE_NAME}"
+        break
+    fi
+done
+
+if [ -z "$CONFIG_FILE" ]; then
+    CONFIG_FILE=$(ls /etc/radio/radiod@*.conf 2>/dev/null | head -n1)
+    if [ -z "$CONFIG_FILE" ]; then
+        echo "Warning: No configuration found in /etc/radio."
+        echo "         You need to create a configuration file before starting the service."
+        echo "         A template is available in the repository: radiod@template.conf"
+        read -p "Press Enter to continue installation (service start will fail) or Ctrl+C to abort..." || true
+    else
+        INSTANCE_NAME=$(basename "$CONFIG_FILE" | sed -E 's/radiod@(.*)\.conf/\1/')
+        echo "    Found configuration file for instance: $INSTANCE_NAME (currently stopped)"
+    fi
+fi
+
+if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+    # Extract status address (handles 'status = value # comment')
+    STATUS_ADDR=$(grep -E "^[[:space:]]*status[[:space:]]*=" "$CONFIG_FILE" | head -n1 | sed -E 's/^[[:space:]]*status[[:space:]]*=[[:space:]]*([^ #]*).*/\1/')
+    if [ -z "$STATUS_ADDR" ]; then
+        echo "Error: Could not find 'status =' definition in $CONFIG_FILE"
+        exit 1
+    fi
+    echo "    Using status address: $STATUS_ADDR"
+else
+    echo "    No valid config found. Skipping status address detection."
+fi
+
+WEB_WAS_RUNNING=0
+if systemctl is-active --quiet ka9q-web 2>/dev/null; then
+    WEB_WAS_RUNNING=1
+    echo "    ka9q-web service is currently running."
+else
+    echo "    ka9q-web service is currently stopped (or not installed)."
+fi
+
 # 3. Build and Install ka9q-radio
-# MOVED UP: Must be installed before we can check /etc/radio config
 echo "[+] Building and Installing ka9q-radio..."
 
 # Create the `radio` user/group that ka9q-radio's systemd units run as
@@ -241,55 +303,6 @@ sudo make install
 # native installs create those dirs too; without them, radiod has no config
 # to read and writes no state.
 sudo systemd-tmpfiles --create
-
-# 4. Detect Configuration
-echo "[+] Detecting Configuration..."
-RADIOD_WAS_RUNNING=0
-# Try to find running radiod instance first
-RUNNING_INSTANCE=$(systemctl list-units --type=service --state=running --no-legend "radiod@*" | cut -d' ' -f1 | head -n1)
-
-if [ -n "$RUNNING_INSTANCE" ]; then
-    RADIOD_WAS_RUNNING=1
-    INSTANCE_NAME=$(echo "$RUNNING_INSTANCE" | sed -E 's/radiod@(.*)\.service/\1/')
-    echo "    Found running service: $INSTANCE_NAME"
-    CONFIG_FILE="/etc/radio/radiod@${INSTANCE_NAME}.conf"
-else
-    # Find first conf file in /etc/radio
-    CONFIG_FILE=$(ls /etc/radio/radiod@*.conf 2>/dev/null | head -n1)
-    
-    if [ -z "$CONFIG_FILE" ]; then
-        echo "Warning: No configuration found in /etc/radio."
-        echo "         You need to create a configuration file before starting the service."
-        echo "         A template is available in the repository: radiod@template.conf"
-        read -p "Press Enter to continue installation (service start will fail) or Ctrl+C to abort..." || true
-    else
-        INSTANCE_NAME=$(basename "$CONFIG_FILE" | sed -E 's/radiod@(.*)\.conf/\1/')
-        echo "    Found configuration file for instance: $INSTANCE_NAME (currently stopped)"
-    fi
-fi
-
-if [ -n "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
-    # Extract status address (handles 'status = value # comment')
-    # Using grep and sed for better portability than awk with \s
-    STATUS_ADDR=$(grep -E "^[[:space:]]*status[[:space:]]*=" "$CONFIG_FILE" | head -n1 | sed -E 's/^[[:space:]]*status[[:space:]]*=[[:space:]]*([^ #]*).*/\1/')
-
-    if [ -z "$STATUS_ADDR" ]; then
-        echo "Error: Could not find 'status =' definition in $CONFIG_FILE"
-        exit 1
-    fi
-    echo "    Using status address: $STATUS_ADDR"
-else
-    echo "    No valid config found. Skipping status address detection."
-fi
-
-# Check if ka9q-web was running
-WEB_WAS_RUNNING=0
-if systemctl is-active --quiet ka9q-web 2>/dev/null; then
-    WEB_WAS_RUNNING=1
-    echo "    ka9q-web service is currently running."
-else
-    echo "    ka9q-web service is currently stopped (or not installed)."
-fi
 
 # 5. Build and Install ka9q-web
 echo "[+] Building and Installing ka9q-web..."
